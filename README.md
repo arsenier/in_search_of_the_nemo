@@ -33,5 +33,5 @@ sudo apt install ros-jazzy-pointcloud-to-laserscan
 make rviz
 make pc2l
 make slam
-ros2 bag play tb_office_v02_0.mcap
+ros2 bag play bag_files/tb_office_v02_0.mcap
 ```
