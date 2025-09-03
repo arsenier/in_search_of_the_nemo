@@ -23,11 +23,18 @@ class Detector(Node):
         self.point_publisher = self.create_publisher(PointCloud2, self.marker_topic, 10)
         self.image_publisher = self.create_publisher(Image, self.image_topic, 10)
         self.lidar_subscriber = self.create_subscription(
-            PointCloud2, self.pointcloud_source, self.process_points, 10
+            PointCloud2, self.pointcloud_source, self.process_points, 2
         )
 
         self.image_height = 256
         self.image_width = 256
+
+    def is_anomaly(self, dist, intensity):
+        min_dist = 0.3
+        max_dist = 2
+
+        if min_dist < dist < max_dist and dist * 255 / 2.0 - intensity < 0:
+            return True
 
     def process_points(self, msg: PointCloud2):
 
@@ -37,9 +44,10 @@ class Detector(Node):
         # self.get_logger().info(f"pcd_as_numpy_array: {pcd_as_numpy_array}")
         self.get_logger().info(f"one point: {pcd_as_numpy_array[0]}")
 
-        image_array = np.zeros((self.image_height, self.image_width, 1), dtype=np.uint8)
+        image_array = np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8)
 
-        max_dist = 10
+        max_dist = 2
+        max_intensity = 50
 
         for point in pcd_as_numpy_array:
             x, y, z, intensity, _, _, _ = point
@@ -47,15 +55,28 @@ class Detector(Node):
             dist = math.sqrt(x * x + y * y)
 
             dist_norm = dist / max_dist * 255
-            intensity_log = math.log(intensity + 1) / math.log(255) * 255
+            # intensity_log = math.log(intensity + 1) / math.log(255) * 255
 
             if dist_norm > 255:
                 dist_norm = 255
 
-            image_array[int(intensity), int(dist_norm), 0] = intensity
+            intensity_norm = intensity / max_intensity * 255
+            if intensity_norm > 255:
+                intensity_norm = 255
+
+            image_array[int(intensity), int(dist_norm), 0] += 10
+            if self.is_anomaly(dist, intensity):
+                image_array[int(intensity), int(dist_norm), 1] += 255
+                image_array[int(intensity), int(dist_norm), 2] += 255
+
+        for x in range(self.image_width):
+            for y in range(self.image_height):
+                if image_array[y, x, 0] != 0:
+                    image_array[y, x, 0] += 50
+                    image_array[y, x, 0] = min(255, image_array[y, x, 0])
 
         bridge = CvBridge()
-        ros_image = bridge.cv2_to_imgmsg(image_array, "mono8")
+        ros_image = bridge.cv2_to_imgmsg(image_array, "bgr8")
         self.image_publisher.publish(ros_image)
 
 
