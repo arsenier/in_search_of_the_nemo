@@ -32,6 +32,8 @@
 
 ### Видеозапись решения
 
+Видеозапись решения находится по адресу: `movies/2025-09-03 13-21-35_full_mapping_and_marker_detection.mp4`
+
 <video controls src="movies/2025-09-03 13-21-35_full_mapping_and_marker_detection.mp4" title="Title"></video>
 
 ## Инструкция по запуску
