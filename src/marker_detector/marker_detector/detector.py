@@ -5,6 +5,8 @@ from rclpy.node import Node
 
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs.msg import Image
+import sensor_msgs.msg as sensor_msgs
+import std_msgs.msg as std_msgs
 from cv_bridge import CvBridge
 
 import numpy as np
@@ -20,7 +22,9 @@ class Detector(Node):
         self.image_topic = self.get_parameter("image_topic").value
         self.pointcloud_source = self.get_parameter("pointcloud_source").value
         self.marker_topic = self.get_parameter("marker_topic").value
-        self.point_publisher = self.create_publisher(PointCloud2, self.marker_topic, 10)
+        self.marker_publisher = self.create_publisher(
+            PointCloud2, self.marker_topic, 10
+        )
         self.image_publisher = self.create_publisher(Image, self.image_topic, 10)
         self.lidar_subscriber = self.create_subscription(
             PointCloud2, self.pointcloud_source, self.process_points, 2
@@ -42,12 +46,14 @@ class Detector(Node):
         pcd_as_numpy_array = np.array(list(read_points(msg)))
 
         # self.get_logger().info(f"pcd_as_numpy_array: {pcd_as_numpy_array}")
-        self.get_logger().info(f"one point: {pcd_as_numpy_array[0]}")
+        # self.get_logger().info(f"one point: {pcd_as_numpy_array[0]}")
 
         image_array = np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8)
 
         max_dist = 2
         max_intensity = 50
+
+        anomaly_points = []
 
         for point in pcd_as_numpy_array:
             x, y, z, intensity, _, _, _ = point
@@ -69,15 +75,78 @@ class Detector(Node):
                 image_array[int(intensity), int(dist_norm), 1] += 255
                 image_array[int(intensity), int(dist_norm), 2] += 255
 
+                anomaly_points.append([x, y, dist, intensity])
+
         for x in range(self.image_width):
             for y in range(self.image_height):
                 if image_array[y, x, 0] != 0:
                     image_array[y, x, 0] += 50
                     image_array[y, x, 0] = min(255, image_array[y, x, 0])
 
+        if len(anomaly_points) > 10:
+            # self.marker_publisher.publish(self.create_marker(anomaly_points))
+            cmx = np.mean([x for x, _, _, _ in anomaly_points])
+            cmy = np.mean([y for _, y, _, _ in anomaly_points])
+
+            print(f"Marker found at {cmx}, {cmy}")
+
+            point = point_cloud(np.array([[-cmy, -cmx, 0]]), "base_link")
+
+            self.marker_publisher.publish(point)
+
         bridge = CvBridge()
         ros_image = bridge.cv2_to_imgmsg(image_array, "bgr8")
         self.image_publisher.publish(ros_image)
+
+
+def point_cloud(points, parent_frame):
+    """Creates a point cloud message.
+    Args:
+        points: Nx3 array of xyz positions.
+        parent_frame: frame in which the point cloud is defined
+    Returns:
+        sensor_msgs/PointCloud2 message
+
+    Code source:
+        https://gist.github.com/pgorczak/5c717baa44479fa064eb8d33ea4587e0
+
+    References:
+        http://docs.ros.org/melodic/api/sensor_msgs/html/msg/PointCloud2.html
+        http://docs.ros.org/melodic/api/sensor_msgs/html/msg/PointField.html
+        http://docs.ros.org/melodic/api/std_msgs/html/msg/Header.html
+
+    """
+    # In a PointCloud2 message, the point cloud is stored as an byte
+    # array. In order to unpack it, we also include some parameters
+    # which desribes the size of each individual point.
+    ros_dtype = sensor_msgs.PointField.FLOAT32
+    dtype = np.float32
+    itemsize = np.dtype(dtype).itemsize  # A 32-bit float takes 4 bytes.
+
+    data = points.astype(dtype).tobytes()
+
+    # The fields specify what the bytes represents. The first 4 bytes
+    # represents the x-coordinate, the next 4 the y-coordinate, etc.
+    fields = [
+        sensor_msgs.PointField(name=n, offset=i * itemsize, datatype=ros_dtype, count=1)
+        for i, n in enumerate("xyz")
+    ]
+
+    # The PointCloud2 message also has a header which specifies which
+    # coordinate frame it is represented in.
+    header = std_msgs.Header(frame_id=parent_frame)
+
+    return sensor_msgs.PointCloud2(
+        header=header,
+        height=1,
+        width=points.shape[0],
+        is_dense=False,
+        is_bigendian=False,
+        fields=fields,
+        point_step=(itemsize * 3),  # Every point consists of three float32s.
+        row_step=(itemsize * 3 * points.shape[0]),
+        data=data,
+    )
 
 
 ## The code below is "ported" from

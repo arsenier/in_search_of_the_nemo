@@ -3,3 +3,6 @@ bag_files/
 install/
 build/
 log/
+
+*.pyc
+**/__pycache__
