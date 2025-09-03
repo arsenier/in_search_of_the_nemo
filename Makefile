@@ -9,3 +9,6 @@ slam:
 
 pc2l:
 	ros2 launch pc2l start.launch.py
+
+all:
+	ros2 launch master.launch.py
